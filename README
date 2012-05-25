@@ -1,4 +1,4 @@
-fqz_comp v4.3
+fqz_comp v4.4
 =============
 
 James Bonfield, Wellcome Trust Sanger Institute 2011, 2012.
@@ -306,6 +306,21 @@ SOLiD: -S -n2 -s5+ -q1
 
     At present the complementary strand detection has not been
     implemented for SOLiD, so do not use the -b parameter.
+
+
+Changes between 4.3 and 4.4
+===========================
+
+- Improved memory prefetching, particularly of sequence models. This
+  speeds up high order sequence encoding by 30-40%. Decoding speeds
+  have only improved by less, but overall the program is around 20%
+  faster.
+
+- Adjusted the sequence model to use 20% less space.
+
+- Support for more SOLiD formats. We now cope with the primer base
+  having a dummy quality (or not as the case may be). Standards? What
+  are they?
 
 
 Changes between 4.2 and 4.3

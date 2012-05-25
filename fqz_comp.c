@@ -12,11 +12,12 @@
 #include <math.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <time.h>
 
 #include "sfh.h"
 
 #define MAJOR_VERS 4
-#define MINOR_VERS 3
+#define MINOR_VERS 4
 
 /* Keep as a power of 2 */
 //#define QMAX 128
@@ -31,6 +32,9 @@
 #else
 #  define sched_getcpu() -1
 #endif
+
+/* Debug timing. Only works in non-threaded mode */
+//#define TIMING
 
 /*
  * SSE support to allow use of memory prefetching. It's only minor, but
@@ -60,7 +64,8 @@
  * TODO: implement my own from scratch, although it's doubtful I'll
  * get something as efficient.
  */
-#include "clrf.cdr"
+//#include "clrf.cdr"
+#include "clrf256.cdr"
 //#include "rc.h"
 
 /*
@@ -91,6 +96,7 @@
 #endif
 
 #include "base_model.h"       // BASE_MODEL
+//#include "base_model2.h"       // BASE_MODEL
 
 //#define PREHASHED
 
@@ -108,11 +114,6 @@
  * NOTE: now specified by -s<num>+; eg -s6+ vs -s6
  */
 
-/*
- * Similarly for 2 quality models, but this has an even smaller impact.
- * NOTE: decoding of this does not work right now.
- */
-//#define MULTI_QUAL_MODEL
 
 #define BLK_SIZE 10000000
 //#define BLK_SIZE 1000000
@@ -178,6 +179,7 @@ protected:
 
     int L[256];          // Sequence table lookups ACGTN->0..4
     char solid_primer;
+    char primer_qual;    // True is primer base has a dummy quality
 
     /* --- Buffers */
     // Input and output buffers; need to be size of BLK_SIZE
@@ -251,6 +253,7 @@ protected:
     BASE_MODEL<uint8_t> *model_seq8;
     BASE_MODEL<uint16_t> *model_seq16;
 
+    //#define NS_MASK ((1<<(2*NS))-1)
 #define SMALL_NS 7
 #define SMALL_MASK ((1<<(2*SMALL_NS))-1)
     BASE_MODEL<uint8_t> model_seq_small[1<<(2*SMALL_NS)];
@@ -317,13 +320,14 @@ fqz::fqz(fqz_params *p) {
 
     /* ACGTN* */
     for (int i = 0; i < 256; i++)
-	L[i] = 4;
+	L[i] = 0;
     if (SOLiD) {
 	L['0'] = 0;
 	L['1'] = 1;
 	L['2'] = 2;
 	L['3'] = 3;
 	solid_primer = 'x';
+	primer_qual = 0;
     } else {
 	L['A'] = L['a'] = 0;
 	L['C'] = L['c'] = 1;
@@ -849,26 +853,25 @@ int fqz::decode_len(RangeCoder *rc) {
  * The 8-bit one is lower memory and somtimes slightly faster, but
  * marginally less optimal in compression ratios (within 1%).
  */
-void fqz::encode_seq8(RangeCoder *rc, char *seq, int len) {
+void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
     int last, last2;
-
-    /*
-     * Replace N with the most likely base call (ie the one with 
-     * the largest range). It's very minimal benefit though so may not
-     * be worth the time.
-     *
-     * Or... just remove N completely? We still need to push something into
-     * 'last' though to preserve hash-word alignment.
-     *
-     * Needs reordering of seq/qual code.
-     */
+    int bc[4] = {(3-0) << (2*NS-2),
+		 (3-1) << (2*NS-2),
+		 (3-2) << (2*NS-2),
+		 (3-3) << (2*NS-2)};
+    const int NS_MASK = ((1<<(2*NS))-1);
 
     /* Corresponds to a 12-mer word that doesn't occur in human genome. */
-    last  = 0x7616c7 & ((1<<(2*NS))-1);
-    last2 = 0x1c9791 & ((1<<(2*NS))-1);
+    last  = 0x7616c7 & NS_MASK;
+    last2 = 0x1c9791 & NS_MASK;
+    _mm_prefetch((const char *)&model_seq8[last], _MM_HINT_T0);
 
     if (multi_seq_model) {
 	for (int i = 0; i < len; i++) {
+	    unsigned int l2 = (last << 2) & NS_MASK;
+	    _mm_prefetch((const char *)&model_seq8[l2+0], _MM_HINT_T0);
+	    //_mm_prefetch((const char *)&model_seq8[l2+3], _MM_HINT_T0);
+		
 	    unsigned char  b = L[(unsigned char)seq[i]];
 
 	    /* Works OK on small files to rapidly train, but no gain on
@@ -878,24 +881,15 @@ void fqz::encode_seq8(RangeCoder *rc, char *seq, int len) {
 		 model_seq_small[last & SMALL_MASK].getSummFreq()) >
 		(model_seq_small[last & SMALL_MASK].getTopSym() *
 		 model_seq8     [last             ].getSummFreq())) {
-		b = model_seq8[last].encodeSymbol(rc, b);
+		model_seq8[last].encodeSymbol(rc, b);
 		//model_seq_small[last & SMALL_MASK].updateSymbol(b);
 	    } else {
-		b = model_seq_small[last & SMALL_MASK].encodeSymbol(rc, b);
+		model_seq_small[last & SMALL_MASK].encodeSymbol(rc, b);
 		model_seq8[last].updateSymbol(b);
 	    }
 
-	    last = (last*4 + b) & ((1<<(2*NS))-1);
+	    last = (last*4 + b) & NS_MASK;
 
-
-	    /* 7% speed increase if we have both_strands on, 3% slowdown if
-	     * not
-	     */
-	    //volatile int p = *(int *)&model_seq8[last];
-
-	    /* Faster still, but requires SSE support */
-	    _mm_prefetch((const char *)&model_seq8[last], _MM_HINT_T0);
-	
 	    /*
 	     * On deep data hashing both strands works well. On shallow data
 	     * it adds a significant CPU hit for very minimal gains (at best
@@ -916,18 +910,44 @@ void fqz::encode_seq8(RangeCoder *rc, char *seq, int len) {
 	    }
 	}
     } else {
-	for (int i = 0; i < len; i++) {
-	    unsigned char  b = L[(unsigned char)seq[i]];
-	    b = model_seq8[last].encodeSymbol(rc, b);
+	if (both_strands) {
+	    for (int i = 0; i < len; i++) {
+		unsigned int l2 = (last << 2) & NS_MASK;
+		_mm_prefetch((const char *)&model_seq8[l2+0], _MM_HINT_T0);
+		//_mm_prefetch((const char *)&model_seq8[l2+3], _MM_HINT_T0);
+		
+		unsigned char  b = L[(unsigned char)seq[i]];
+		model_seq8[last].encodeSymbol(rc, b);
 
-	    last = (last*4 + b) & ((1<<(2*NS))-1);
-	    _mm_prefetch((const char *)&model_seq8[last], _MM_HINT_T0);
+		last = (last*4 + b) & NS_MASK;
 
-	    if (both_strands) {
-		int b2 = last2 & 3;
-		last2 = last2/4 + ((3-b) << (2*NS-2));
-		_mm_prefetch((const char *)&model_seq8[last2], _MM_HINT_T0);
-		model_seq8[last2].updateSymbol(b2);
+		{
+		    int b2 = last2 & 3;
+		    last2 = last2/4 + bc[b];
+		    model_seq8[last2].updateSymbol(b2);
+		    /*
+		    l2 = last2/4;
+		    _mm_prefetch((const char *)&model_seq8[l2 + (0<<(2*NS-2))],
+				 _MM_HINT_T0);
+		    _mm_prefetch((const char *)&model_seq8[l2 + (1<<(2*NS-2))],
+				 _MM_HINT_T0);
+		    _mm_prefetch((const char *)&model_seq8[l2 + (2<<(2*NS-2))],
+				 _MM_HINT_T0);
+		    _mm_prefetch((const char *)&model_seq8[l2 + (3<<(2*NS-2))],
+				 _MM_HINT_T0);
+		    */
+		}
+	    }
+	} else {
+	    for (int i = 0; i < len; i++) {
+		unsigned int l2 = (last << 2) & NS_MASK;
+		_mm_prefetch((const char *)&model_seq8[l2+0], _MM_HINT_T0);
+		//_mm_prefetch((const char *)&model_seq8[l2+3], _MM_HINT_T0);
+		
+		unsigned char  b = L[(unsigned char)seq[i]];
+		model_seq8[last].encodeSymbol(rc, b);
+
+		last = ((last<<2) + b) & NS_MASK;
 	    }
 	}
     }
@@ -936,14 +956,16 @@ void fqz::encode_seq8(RangeCoder *rc, char *seq, int len) {
 void fqz::encode_seq16(RangeCoder *rc, char *seq, int len) {
     int last, last2;
 
+    const int NS_MASK = ((1<<(2*NS))-1);
+
     /* Corresponds to a 12-mer word that doesn't occur in human genome. */
-    last  = 0x7616c7 & ((1<<(2*NS))-1);
-    last2 = 0x1c9791 & ((1<<(2*NS))-1);
+    last  = 0x7616c7 & NS_MASK;
+    last2 = 0x1c9791 & NS_MASK;
 
     for (int i = 0; i < len; i++) {
 	unsigned char  b = L[(unsigned char)seq[i]];
-	b = model_seq16[last].encodeSymbol(rc, b);
-	last = (last*4 + b) & ((1<<(2*NS))-1);
+	model_seq16[last].encodeSymbol(rc, b);
+	last = (last*4 + b) & NS_MASK;
 	//volatile int p = *(int *)&model_seq16[last];
 	_mm_prefetch((const char *)&model_seq16[last], _MM_HINT_T0);
 
@@ -960,12 +982,32 @@ void fqz::decode_seq8(RangeCoder *rc, char *seq, int len) {
     int last, last2;
     const char *dec = SOLiD ? "0123." : "ACGTN";
 
-    last  = 0x7616c7 & ((1<<(2*NS))-1);
-    last2 = 0x1c9791 & ((1<<(2*NS))-1);
+    const int NS_MASK = ((1<<(2*NS))-1);
+
+    /*
+     * We can't do the same prefetch loop here as we don't know what the
+     * data is yet, so we can't predict the memory addresses in model[]
+     * that we're going to access.
+     *
+     * However we can guess it'll be one of 4 base calls, so populate the
+     * cache with all 4 choices so by the time we get there it'll have been
+     * loaded.
+     */
+
+    last  = 0x7616c7 & NS_MASK;
+    last2 = 0x1c9791 & NS_MASK;
 
     if (multi_seq_model) {
 	for (int i = 0; i < len; i++) {
 	    unsigned char b;
+	    unsigned int m = (last<<2) & NS_MASK;
+	    _mm_prefetch((const char *)&model_seq8[m+0], _MM_HINT_T0);
+	    //_mm_prefetch((const char *)&model_seq8[m+3], _MM_HINT_T0);
+	    
+	    m &= SMALL_MASK;
+	    _mm_prefetch((const char *)&model_seq_small[m+0], _MM_HINT_T0);
+	    //_mm_prefetch((const char *)&model_seq_small[m+3], _MM_HINT_T0);
+
 	    if ((model_seq8     [last             ].getTopSym() *
 		 model_seq_small[last & SMALL_MASK].getSummFreq()) >
 		(model_seq_small[last & SMALL_MASK].getTopSym() *
@@ -977,7 +1019,7 @@ void fqz::decode_seq8(RangeCoder *rc, char *seq, int len) {
 		model_seq8[last].updateSymbol(b);
 	    }
 	    *seq++ = dec[b];
-	    last = (last*4 + b) & ((1<<(2*NS))-1);
+	    last = (last*4 + b) & NS_MASK;
 
 	    _mm_prefetch((const char *)&model_seq8[last], _MM_HINT_T0);
 
@@ -989,19 +1031,39 @@ void fqz::decode_seq8(RangeCoder *rc, char *seq, int len) {
 	    }
 	}
     } else {
-	for (int i = 0; i < len; i++) {
-	    unsigned char b = model_seq8[last].decodeSymbol(rc);
+	if (both_strands) {
+	    for (int i = 0; i < len; i++) {	
+		unsigned char b;
+		unsigned int m = (last<<2) & NS_MASK;
+		int b2;
 
-	    *seq++ = dec[b];
-	    last = (last*4 + b) & ((1<<(2*NS))-1);
+		/* Get next set loaded */
+		_mm_prefetch((const char *)&model_seq8[m+0], _MM_HINT_T0);
+		//_mm_prefetch((const char *)&model_seq8[m+3], _MM_HINT_T0);
 
-	    _mm_prefetch((const char *)&model_seq8[last], _MM_HINT_T0);
+		b = model_seq8[last].decodeSymbol(rc);
 
-	    if (both_strands) {
-		int b2 = last2 & 3;
+		*seq++ = dec[b];
+		last = (last*4 + b) & NS_MASK;
+
+		b2 = last2 & 3;
 		last2 = last2/4 + ((3-b) << (2*NS-2));
 		_mm_prefetch((const char *)&model_seq8[last2], _MM_HINT_T0);
 		model_seq8[last2].updateSymbol(b2);
+	    }
+	} else {
+	    for (int i = 0; i < len; i++) {	
+		unsigned char b;
+		unsigned int m = (last<<2) & NS_MASK;
+
+		/* Get next set loaded */
+		_mm_prefetch((const char *)&model_seq8[m+0], _MM_HINT_T0);
+		//_mm_prefetch((const char *)&model_seq8[m+3], _MM_HINT_T0);
+
+		b = model_seq8[last].decodeSymbol(rc);
+
+		*seq++ = dec[b];
+		last = (last*4 + b) & NS_MASK;
 	    }
 	}
     }
@@ -1011,12 +1073,14 @@ void fqz::decode_seq16(RangeCoder *rc, char *seq, int len) {
     int last, last2;
     const char *dec = SOLiD ? "0123." : "ACGTN";
 
-    last  = 0x7616c7 & ((1<<(2*NS))-1);
-    last2 = 0x1c9791 & ((1<<(2*NS))-1);
+    const int NS_MASK = ((1<<(2*NS))-1);
+
+    last  = 0x7616c7 & NS_MASK;
+    last2 = 0x1c9791 & NS_MASK;
     for (int i = 0; i < len; i++) {
 	unsigned char b = model_seq16[last].decodeSymbol(rc);
 	*seq++ = dec[b];
-	last = (last*4 + b) & ((1<<(2*NS))-1);
+	last = (last*4 + b) & NS_MASK;
 	_mm_prefetch((const char *)&model_seq16[last], _MM_HINT_T0);
 
 	if (both_strands) {
@@ -1033,6 +1097,58 @@ void fqz::decode_seq16(RangeCoder *rc, char *seq, int len) {
  * Quality model
  */
 
+#if 0
+void fqz::encode_qual(RangeCoder *rc, char *seq, char *qual, int len) {
+    unsigned int last = 0;
+    int delta = 5;
+    int i, len2 = len;
+    int q1 = 0, q2 = 0;
+    unsigned int X[1024];
+
+    /* Removing "Killer Bees" */
+    while (len2 > 0 && qual[len2-1] == '#')
+	len2--;
+
+    /* Prefetching & context caching. Only minor speed improvement. */
+    for (i = 0; i < len2; i++) {
+	unsigned char q = (qual[i] - '!') & (QMAX-1);
+
+	X[i] = last;
+	_mm_prefetch((const char *)&model_qual[last], _MM_HINT_T0);
+	_mm_prefetch(64+(const char *)&model_qual[last], _MM_HINT_T0);
+
+	// previous 2-3 bytes
+	if (QBITS == 12) {
+	    last = ((MAX(q1, q2)<<6) + q) & ((1<<QBITS)-1);
+	} else {
+	    last = ((last << 6) + q) & ((1<<QBITS)-1);
+	}
+
+	if (qlevel > 1) {
+	    last  += (q1==q2) << QBITS;
+	    // delta saves 3-4%, but adds 14% cpu
+	    delta += (q1>q)*(q1-q);
+	    last  += (MIN(7*8, delta)&0xf8) << (QBITS-2);
+	}
+
+	if (qlevel > 2)
+	    last += (MIN(i+15,127)&(15<<3))<<(QBITS+1);     // i>>3
+
+	q2 = q1; q1 = q;
+    }
+    X[i] = last;
+
+    /* The actual encoding */
+    for (i = 0; i < len2; i++) {
+	unsigned char q = (qual[i] - '!') & (QMAX-1);
+	model_qual[X[i]].encodeSymbol(rc, q);
+    }
+
+    if (len != len2) {
+	model_qual[X[i]].encodeSymbol(rc, QMAX-1); /* terminator */
+    }
+}
+#else
 void fqz::encode_qual(RangeCoder *rc, char *seq, char *qual, int len) {
     unsigned int last = 0;
     int delta = 5;
@@ -1085,6 +1201,7 @@ void fqz::encode_qual(RangeCoder *rc, char *seq, char *qual, int len) {
     if (len != len2)
 	model_qual[last].encodeSymbol(rc, QMAX-1); /* terminator */
 }
+#endif
 
 /*
  * This attempts to encode qualities within a fixed distance, provided it
@@ -1177,18 +1294,7 @@ void fqz::decode_qual(RangeCoder *rc, char *qual, int len) {
     int q1 = 0, q2 = 0;
 
     for (i = 0; i < len; i++) {
-#ifdef MULTI_QUAL_MODE
-	unsigned char q;
-
-	if (model_qual[last].bias() > model_qual[last & SMALL_QMASK].bias()) {
-	    q = model_qual[last].decodeSymbol(rc);
-	} else {
-	    q = model_qual[last & SMALL_MASK].decodeSymbol(rc);
-	    model_qual[last].updateSymbol(q);
-	}
-#else
 	unsigned char q = model_qual[last].decodeSymbol(rc);
-#endif
 
 	if (q == QMAX-1) {
 	    while (i < len)
@@ -1224,6 +1330,11 @@ void fqz::decode_qual(RangeCoder *rc, char *qual, int len) {
  * Compression functions.
  */
 
+
+#ifdef TIMING
+static long c1 = 0, c2 = 0, c3 = 0;
+#endif
+
 /* pthread enty points */
 static void *fq_compress_r1(void *v) {
     //fprintf(stderr, "r1 start on %d\n", sched_getcpu());
@@ -1251,6 +1362,10 @@ void fqz::compress_r1() {
     char *name_p = name_buf;
     RangeCoder rc;
 
+#ifdef TIMING
+    clock_t c = clock();
+#endif
+
     rc.output(out1);
     rc.StartEncode();
     if (nlevel == 1) {
@@ -1269,12 +1384,20 @@ void fqz::compress_r1() {
     sz1 = rc.size_out();
     name_in  += name_p - name_buf;
     name_out += sz1;
+
+#ifdef TIMING
+    c1 += clock() - c;
+#endif
 }
 
 /* Sequence itself */
 void fqz::compress_r2() {
     char *seq_p  = seq_buf;
     RangeCoder rc;
+
+#ifdef TIMING
+    clock_t c = clock();
+#endif
 
     rc.output(out2);
     rc.StartEncode();
@@ -1290,6 +1413,10 @@ void fqz::compress_r2() {
     sz2 = rc.size_out();
     base_in  += seq_p - seq_buf;
     base_out += sz2;
+
+#ifdef TIMING
+    c2 += clock() - c;
+#endif
 }
 
 /* Quality values */
@@ -1297,6 +1424,10 @@ void fqz::compress_r3() {
     char *qual_p = qual_buf;
     char *seq_p = seq_buf;
     RangeCoder rc;
+
+#ifdef TIMING
+    clock_t c = clock();
+#endif
 
     rc.output(out3);
     rc.StartEncode();
@@ -1314,6 +1445,10 @@ void fqz::compress_r3() {
     sz3 = rc.size_out();
     qual_in  += qual_p - qual_buf;
     qual_out += sz3;
+
+#ifdef TIMING
+    c3 += clock() - c;
+#endif
 }
 
 /*
@@ -1384,7 +1519,22 @@ int fqz::fq_compress(char *in,  int in_len,
 	/* Quality */
 	qual = &in[i];
 	if (SOLiD) {
-	    for (j = 0; i < in_len && in[i] != '\n'; i++, j++) {
+	    int old_i = i;
+	    /* Check qual and seq len matches. SOLiD format varies. */
+	    for (j = i; i < in_len && in[i] != '\n'; i++)
+		;
+	    fprintf(stderr, "i-j=%d len=%d\n", i-j, seq_len_a[ns]);
+	    if (i-j == seq_len_a[ns]+1) {
+		primer_qual = 1;
+		old_i++;
+	    } else if (i-j == seq_len_a[ns]) {
+		primer_qual = 0;
+	    } else {
+		fprintf(stderr, "Seq %d: unexpected length of quality "
+			"string\n", ns);
+		return -1;
+	    }
+	    for (j = 0, i = old_i; i < in_len && in[i] != '\n'; i++, j++) {
 		if (seq[j] == '.') in[i] = '!'; // Ensure N is qual 0
 		if (in[i] == '!' && seq[j] != '.') in[i] = '"';
 		*qual_p++ = in[i];
@@ -1417,10 +1567,12 @@ int fqz::fq_compress(char *in,  int in_len,
     chksum = (do_hash && !qual_approx) ? sfhash((uc *)in, end) : 0;
 
     /* Encode seq len, we have a dependency on this for seq/qual */
+    //fprintf(stderr, "-----\n");
     RangeCoder rc;
     rc.output(out0);
     rc.StartEncode();
     for (int i = 0; i < ns; i++) {
+	//fprintf(stderr, "Encode %d: %d\n", i, seq_len_a[i]);
 	encode_len(&rc, seq_len_a[i]);
     }
     rc.FinishEncode();
@@ -1537,9 +1689,21 @@ int fqz::encode(int in_fd, int out_fd) {
 	    first_block = 0;
 	    if (SOLiD) {
 		/* Find primer base */
-		int i = 0;
+		int i = 0, qlen, slen;
 		while (i < sz && in_buf[i] != '\n') i++;
 		write(out_fd, in_buf+i+1, 1);
+
+		/* Check if quality string has dummy qual for this too */
+		slen = ++i;
+		while (i < sz && in_buf[i] != '\n') i++; // seq;
+		slen = i++-slen;
+		while (i < sz && in_buf[i] != '\n') i++; // "+" line
+		qlen = ++i;
+		while (i < sz && in_buf[i] != '\n') i++; // qual;
+		qlen = i++-qlen;
+
+		char c = qlen == slen;
+		write(out_fd, &c, 1);
 	    }
 	}
 
@@ -1721,9 +1885,11 @@ char *fqz::fq_decompress(char *in, int comp_len, int *out_len) {
 	    out_buf[out_ind++] = '\n';
 
 	    /* qual */
+	    if (primer_qual)
+		out_buf[out_ind++] = '!';
 	    for (int j = 0; j < seq_len_a[i]; j++) {
 		if ((out_buf[out_ind++] = *qual_p++) == '!') {
-		    out_buf[out_ind-4-seq_len_a[i]] = '.';
+		    out_buf[out_ind-4-seq_len_a[i] - primer_qual] = '.';
 		}
 	    }
 	    out_buf[out_ind++] = '\n';
@@ -1770,10 +1936,12 @@ char *fqz::fq_decompress(char *in, int comp_len, int *out_len) {
 int fqz::decode(int in_fd, int out_fd) {
     unsigned char len_buf[4];
 
-    if (SOLiD)
+    if (SOLiD) {
 	if (1 != read(in_fd, &solid_primer, 1))
 	    return -1;
-
+	if (1 != read(in_fd, &primer_qual, 1))
+	    return -1;
+    }
     /*
      * Parse one block at a time. Blocks may not terminate on exact fastq
      * boundaries, so we need to know where we ended processing and move
@@ -1791,7 +1959,7 @@ int fqz::decode(int in_fd, int out_fd) {
 	char *uncomp_buf;
 	int   uncomp_len, rem_len = comp_len, in_off = 0;
 
-	fprintf(stderr, "Block of length %d\n", comp_len);
+	//fprintf(stderr, "Block of length %d\n", comp_len);
 
 	do {
 	    errno = 0;
@@ -2029,12 +2197,24 @@ int main(int argc, char **argv) {
 	f = new fqz(&p);
 	r = f->encode(in_fd, out_fd);
 
+#ifdef TIMING
+	fprintf(stderr, "Names %10"PRId64" -> %10"PRId64" (%0.3f) in %.2fs\n",
+		f->name_in, f->name_out, (double)f->name_out / f->name_in,
+		(double)c1 / CLOCKS_PER_SEC);
+	fprintf(stderr, "Bases %10"PRId64" -> %10"PRId64" (%0.3f) in %.2fs\n",
+		f->base_in, f->base_out, (double)f->base_out / f->base_in,
+		(double)c2 / CLOCKS_PER_SEC);
+	fprintf(stderr, "Quals %10"PRId64" -> %10"PRId64" (%0.3f) in %.2fs\n",
+		f->qual_in, f->qual_out, (double)f->qual_out / f->qual_in,
+		(double)c3 / CLOCKS_PER_SEC);
+#else
 	fprintf(stderr, "Names %10"PRId64" -> %10"PRId64" (%0.3f)\n",
 		f->name_in, f->name_out, (double)f->name_out / f->name_in);
 	fprintf(stderr, "Bases %10"PRId64" -> %10"PRId64" (%0.3f)\n",
 		f->base_in, f->base_out, (double)f->base_out / f->base_in);
 	fprintf(stderr, "Quals %10"PRId64" -> %10"PRId64" (%0.3f)\n",
 		f->qual_in, f->qual_out, (double)f->qual_out / f->qual_in);
+#endif
 
 	return r ? 1 : 0;
     }
