@@ -148,7 +148,6 @@ inline void BASE_MODEL<st_t>::updateSymbol(uint sym) {
     int SummFreq = (Stats[0] + Stats[1]) + (Stats[2] + Stats[3]);
     if ( SummFreq>=WSIZ ) {
 	rescaleRare();
-	SummFreq = (Stats[0] + Stats[1]) + (Stats[2] + Stats[3]);
     }
 
     /* known symbol */
