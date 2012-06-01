@@ -862,8 +862,9 @@ void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
     const int NS_MASK = ((1<<(2*NS))-1);
 
     /* Corresponds to a 12-mer word that doesn't occur in human genome. */
-    last  = 0x7616c7 & NS_MASK;
-    last2 = 0x1c9791 & NS_MASK;
+    last  = 0x007616c7 & NS_MASK;
+    last2 = (0x2c6b62ff >> (32 - 2*NS)) & NS_MASK;
+    
     _mm_prefetch((const char *)&model_seq8[last], _MM_HINT_T0);
 
     if (multi_seq_model) {
@@ -911,38 +912,30 @@ void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
 	}
     } else {
 	if (both_strands) {
+	    unsigned l2 = last2;
+	    for (int i = 0; i < len && i < 128; i++) {
+		unsigned char  b = L[(unsigned char)seq[i]];
+		l2 = l2/4 + bc[b];
+		_mm_prefetch((const char *)&model_seq8[l2], _MM_HINT_T0);
+	    }
+
 	    for (int i = 0; i < len; i++) {
 		unsigned int l2 = (last << 2) & NS_MASK;
 		_mm_prefetch((const char *)&model_seq8[l2+0], _MM_HINT_T0);
-		//_mm_prefetch((const char *)&model_seq8[l2+3], _MM_HINT_T0);
 		
 		unsigned char  b = L[(unsigned char)seq[i]];
 		model_seq8[last].encodeSymbol(rc, b);
 
 		last = (last*4 + b) & NS_MASK;
 
-		{
-		    int b2 = last2 & 3;
-		    last2 = last2/4 + bc[b];
-		    model_seq8[last2].updateSymbol(b2);
-		    /*
-		    l2 = last2/4;
-		    _mm_prefetch((const char *)&model_seq8[l2 + (0<<(2*NS-2))],
-				 _MM_HINT_T0);
-		    _mm_prefetch((const char *)&model_seq8[l2 + (1<<(2*NS-2))],
-				 _MM_HINT_T0);
-		    _mm_prefetch((const char *)&model_seq8[l2 + (2<<(2*NS-2))],
-				 _MM_HINT_T0);
-		    _mm_prefetch((const char *)&model_seq8[l2 + (3<<(2*NS-2))],
-				 _MM_HINT_T0);
-		    */
-		}
+		int b2 = last2 & 3;
+		last2 = last2/4 + bc[b];
+		model_seq8[last2].updateSymbol(b2);
 	    }
 	} else {
 	    for (int i = 0; i < len; i++) {
 		unsigned int l2 = (last << 2) & NS_MASK;
 		_mm_prefetch((const char *)&model_seq8[l2+0], _MM_HINT_T0);
-		//_mm_prefetch((const char *)&model_seq8[l2+3], _MM_HINT_T0);
 		
 		unsigned char  b = L[(unsigned char)seq[i]];
 		model_seq8[last].encodeSymbol(rc, b);
@@ -960,7 +953,7 @@ void fqz::encode_seq16(RangeCoder *rc, char *seq, int len) {
 
     /* Corresponds to a 12-mer word that doesn't occur in human genome. */
     last  = 0x7616c7 & NS_MASK;
-    last2 = 0x1c9791 & NS_MASK;
+    last2 = (0x2c6b62ff >> (32 - 2*NS)) & NS_MASK;
 
     for (int i = 0; i < len; i++) {
 	unsigned char  b = L[(unsigned char)seq[i]];
@@ -995,7 +988,7 @@ void fqz::decode_seq8(RangeCoder *rc, char *seq, int len) {
      */
 
     last  = 0x7616c7 & NS_MASK;
-    last2 = 0x1c9791 & NS_MASK;
+    last2 = (0x2c6b62ff >> (32 - 2*NS)) & NS_MASK;
 
     if (multi_seq_model) {
 	for (int i = 0; i < len; i++) {
@@ -1076,7 +1069,7 @@ void fqz::decode_seq16(RangeCoder *rc, char *seq, int len) {
     const int NS_MASK = ((1<<(2*NS))-1);
 
     last  = 0x7616c7 & NS_MASK;
-    last2 = 0x1c9791 & NS_MASK;
+    last2 = (0x2c6b62ff >> (32 - 2*NS)) & NS_MASK;
     for (int i = 0; i < len; i++) {
 	unsigned char b = model_seq16[last].decodeSymbol(rc);
 	*seq++ = dec[b];
