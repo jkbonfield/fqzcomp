@@ -1516,7 +1516,6 @@ int fqz::fq_compress(char *in,  int in_len,
 	    /* Check qual and seq len matches. SOLiD format varies. */
 	    for (j = i; i < in_len && in[i] != '\n'; i++)
 		;
-	    fprintf(stderr, "i-j=%d len=%d\n", i-j, seq_len_a[ns]);
 	    if (i-j == seq_len_a[ns]+1) {
 		primer_qual = 1;
 		old_i++;
@@ -2014,6 +2013,7 @@ static void usage(int err) {
     fprintf(fp, "    -P             Disable multi-threading\n\n");
 
     fprintf(fp, "    -X             Disable generation/verification of check sums\n\n");
+    fprintf(fp, "    -S             SOLiD format\n\n");
 
     fprintf(fp, "To decompress:\n   fastq_comp -d < foo.fqz > foo.fastq\n");
     fprintf(fp, "or fastq_comp -d foo.fqz foo.fastq\n");
