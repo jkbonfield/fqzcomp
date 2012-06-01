@@ -1522,6 +1522,11 @@ int fqz::fq_compress(char *in,  int in_len,
 	    } else if (i-j == seq_len_a[ns]) {
 		primer_qual = 0;
 	    } else {
+		if (i >= in_len) {
+		    i++;
+		    break;
+		}
+
 		fprintf(stderr, "Seq %d: unexpected length of quality "
 			"string\n", ns);
 		return -1;
