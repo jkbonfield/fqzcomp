@@ -316,7 +316,7 @@ Changes between 4.3 and 4.4
   have only improved by less, but overall the program is around 20%
   faster.
 
-- Adjusted the sequence model to use 20% less space.
+- Adjusted the sequence model to use 20% less memory.
 
 - Support for more SOLiD formats. We now cope with the primer base
   having a dummy quality (or not as the case may be). Standards? What

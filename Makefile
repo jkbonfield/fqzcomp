@@ -22,8 +22,8 @@ clean:
 	-rm *.o fqz_comp
 
 dist:
-	-rm -rf fqzcomp-3.1
-	mkdir fqzcomp-3.1
-	cp *.[ch] *.inc clrf.cdr fqzcomp-3.1
-	cp README Makefile fqzcomp-3.1
-	tar cvfz fqzcomp-3.0.tar.gz fqzcomp-3.1
+	-rm -rf fqzcomp-4.4
+	mkdir fqzcomp-4.4
+	cp *.[ch] *.cdr fqzcomp-4.4
+	cp README Makefile fqzcomp-4.4
+	tar cvfz fqzcomp-4.4.tar.gz fqzcomp-4.4
