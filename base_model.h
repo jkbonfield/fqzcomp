@@ -75,8 +75,8 @@ void BASE_MODEL<st_t>::rescaleRare()
     Stats[3] -= (Stats[3] >> 1);
 }
 
-//#define Encode256 Encode
-//#define GetFreq256 GetFreq
+#define Encode256 Encode
+#define GetFreq256 GetFreq
 
 /*
  * With anti-div 256 variant

@@ -64,8 +64,8 @@
  * TODO: implement my own from scratch, although it's doubtful I'll
  * get something as efficient.
  */
-//#include "clrf.cdr"
-#include "clrf256.cdr"
+#include "clrf.cdr"
+//#include "clrf256.cdr"
 //#include "rc.h"
 
 /*
@@ -1556,8 +1556,8 @@ int fqz::fq_compress(char *in,  int in_len,
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* F0 */
 	    };
 	    for (j = 0; i < in_len && in[i] != '\n'; i++, j++) {
-	        if (is_N[seq[j]]) in[i] = '!'; // Ensure N is qual 0
-		if (in[i] == '!' && !is_N[seq[j]]) in[i] = '"';
+	        if (is_N[(unsigned char)seq[j]]) in[i] = '!'; // Ensure N is qual 0
+		if (in[i] == '!' && !is_N[(unsigned char)seq[j]]) in[i] = '"';
 		*qual_p++ = in[i];
 	    }
 	}
@@ -1665,6 +1665,33 @@ int fqz::fq_compress(char *in,  int in_len,
 }
 
 /*
+ * A blocking read that refuses to return truncated reads.
+ */
+static size_t xread(int fd, char *buf, size_t count) {
+    ssize_t len, tlen;
+
+    tlen = 0;
+    do {
+	len = read(fd, buf, count);
+	if (len == -1) {
+	    if (errno == EINTR)
+		continue;
+	    return -1;
+	}
+
+	if (len == 0)
+	    return tlen;
+
+	buf   += len;
+	count -= len;
+	tlen  += len;
+    } while (count);
+
+    return tlen;
+}
+
+
+/*
  * Encode an entire stream
  *
  * Returns 0 on success
@@ -1683,7 +1710,7 @@ int fqz::encode(int in_fd, int out_fd) {
      * We write out the block size too so we can decompress block at a time.
      * This may also permits a level of parallellism in the future.
      */
-    while ((sz = read(in_fd, &in_buf[blk_start], BLK_SIZE - blk_start)) > 0) {
+    while ((sz = xread(in_fd, &in_buf[blk_start], BLK_SIZE - blk_start)) > 0) {
 	char *comp, *in_end = NULL;
 	int comp_len = 0, nseqs = 0;
 	
@@ -1706,7 +1733,10 @@ int fqz::encode(int in_fd, int out_fd) {
 		/* Find primer base */
 		int i = 0, qlen, slen;
 		while (i < sz && in_buf[i] != '\n') i++;
-		write(out_fd, in_buf+i+1, 1);
+		if (1 != write(out_fd, in_buf+i+1, 1)) {
+		    fprintf(stderr, "Abort: write failed\n");
+		    return -1;
+		}
 
 		/* Check if quality string has dummy qual for this too */
 		slen = ++i;
@@ -1718,7 +1748,10 @@ int fqz::encode(int in_fd, int out_fd) {
 		qlen = i++-qlen;
 
 		char c = qlen == slen;
-		write(out_fd, &c, 1);
+		if (1 != write(out_fd, &c, 1)) {
+		    fprintf(stderr, "Abort: write failed\n");
+		    return -1;
+		}
 	    }
 	}
 
