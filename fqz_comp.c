@@ -64,7 +64,8 @@
  * TODO: implement my own from scratch, although it's doubtful I'll
  * get something as efficient.
  */
-#include "clrf.cdr"
+//#include "../trunk/clrf.cdr"
+#include "clr.cdr"
 //#include "clrf256.cdr"
 //#include "rc.h"
 
