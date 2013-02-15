@@ -17,7 +17,8 @@
 #include "sfh.h"
 
 #define MAJOR_VERS 4
-#define MINOR_VERS 4
+#define FORMAT_VERS 4
+#define MINOR_VERS 5
 
 /* Keep as a power of 2 */
 //#define QMAX 128
@@ -2052,11 +2053,11 @@ int fqz::decode(int in_fd, int out_fd) {
 static void usage(int err) {
     FILE *fp = err ? stderr : stdout;
 
-    fprintf(fp, "fastq_comp v%d.%d. Author James Bonfield, 2012\n",
+    fprintf(fp, "fqz_comp v%d.%d. Author James Bonfield, 2012\n",
 	    MAJOR_VERS, MINOR_VERS);
     fprintf(fp, "The range coder is derived from Eugene Shelwien.\n\n");
 
-    fprintf(fp, "To compress:\n  fastq_comp [options] [input_file [output_file]]\n\n");
+    fprintf(fp, "To compress:\n  fqz_comp [options] [input_file [output_file]]\n\n");
     fprintf(fp, "    -Q <num>       Perform lossy compression with all quality values\n");
     fprintf(fp, "                   being within 'num' distance from their original value.\n");
     fprintf(fp, "                   Default is lossless, i.e. \"-q 0\"\n\n");
@@ -2072,8 +2073,8 @@ static void usage(int err) {
     fprintf(fp, "    -X             Disable generation/verification of check sums\n\n");
     fprintf(fp, "    -S             SOLiD format\n\n");
 
-    fprintf(fp, "To decompress:\n   fastq_comp -d < foo.fqz > foo.fastq\n");
-    fprintf(fp, "or fastq_comp -d foo.fqz foo.fastq\n");
+    fprintf(fp, "To decompress:\n   fqz_comp -d < foo.fqz > foo.fastq\n");
+    fprintf(fp, "or fqz_comp -d foo.fqz foo.fastq\n");
 
     exit(err);
 }
@@ -2193,7 +2194,7 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "Unrecognised file format.\n");
 	    return 1;
 	}
-	if (magic[4] != MAJOR_VERS || magic[5] != MINOR_VERS) {
+	if (magic[4] != MAJOR_VERS || magic[5] != FORMAT_VERS) {
 	    fprintf(stderr, "Unsupported file format version %d.%d\n",
 		    magic[4], magic[5]);
 	    return 1;
@@ -2233,10 +2234,10 @@ int main(int argc, char **argv) {
 	    + p.SOLiD*8;
 	int r;
 	unsigned char magic[8] = {'.', 'f', 'q', 'z',
-			 MAJOR_VERS,
-			 MINOR_VERS,
-			 level,
-			 flags,
+				  MAJOR_VERS,
+				  FORMAT_VERS,
+				  level,
+				  flags,
 	};
 
 	if (8 != write(out_fd, magic, 8)) {

@@ -1,3 +1,5 @@
+VERS=4.5
+
 all: fqz_comp
 
 CC = g++
@@ -22,8 +24,8 @@ clean:
 	-rm *.o fqz_comp
 
 dist:
-	-rm -rf fqzcomp-4.4
-	mkdir fqzcomp-4.4
-	cp *.[ch] *.cdr fqzcomp-4.4
-	cp README Makefile fqzcomp-4.4
-	tar cvfz fqzcomp-4.4.tar.gz fqzcomp-4.4
+	-rm -rf fqzcomp-$(VERS)
+	mkdir fqzcomp-$(VERS)
+	cp *.[ch] *.cdr fqzcomp-$(VERS)
+	cp README Makefile fqzcomp-$(VERS)
+	tar cvfz fqzcomp-$(VERS).tar.gz fqzcomp-$(VERS)
