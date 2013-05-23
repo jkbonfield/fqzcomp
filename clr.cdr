@@ -70,7 +70,7 @@ public:
 	 // Eg. top-1      == 00ffffff
 	 //     low|top-1  == 88ffffff
 	 //     ...-low    == 0000ddee
-	 if ( uc((low^low+range)>>56) ) 
+	 if ( uc((low^(low+range))>>56) ) 
 	     range = ((uint(low)|(TOP-1))-uint(low));
 	 *out_buf++ = low>>56, range<<=8, low<<=8;
      }
@@ -88,7 +88,7 @@ public:
    range*= freq;
  
    while( range<TOP ) {
-       if ( uc((low^low+range)>>56) ) 
+       if ( uc((low^(low+range))>>56) ) 
 	   range = ((uint(low)|(TOP-1))-uint(low));
        code = (code<<8) | *in_buf++, range<<=8, low<<=8;
    }
