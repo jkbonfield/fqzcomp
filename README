@@ -1,7 +1,7 @@
-fqz_comp v4.5
+fqz_comp v4.6
 =============
 
-James Bonfield, Wellcome Trust Sanger Institute 2011, 2012.
+James Bonfield, Wellcome Trust Sanger Institute 2011 - 2013.
 
 This is the 4th variant of an experimental code to compress fastq
 data.  It has a number of caveats.
@@ -306,6 +306,29 @@ SOLiD: -S -n2 -s5+ -q1
 
     At present the complementary strand detection has not been
     implemented for SOLiD, so do not use the -b parameter.
+
+
+Changes between 4.5 and 4.6
+===========================
+
+(Compatible with 4.5 and 4.4)
+
+- Cope with Fastq files containing windows style carriage-return
+  newline rather than unix newline only.
+
+- No longer generates checksum errors when encoding/decoding files
+  containing data after the "+" line (eg the read name).
+
+
+Changes between 4.4 and 4.5
+===========================
+
+- Bug fix to the arithmetic coder, which occasionally caused crashes.
+
+- Now treats non IUPAC ambiguity codes as N.
+
+- Improvements to reading/writing from pipes; flushing blocks when
+  they're full (as we do from a file) rather than when the pipe stalls.
 
 
 Changes between 4.3 and 4.4
