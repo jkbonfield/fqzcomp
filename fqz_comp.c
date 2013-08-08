@@ -1550,9 +1550,11 @@ int fqz::fq_compress(char *in,  int in_len,
 	    //for (j = i; i < in_len && in[i] != '\n' && in[i] != '\r'; i++)
 	    for (j = i; i < in_len && not_nl[(uc)in[i]]; i++)
 		;
+	    if (i == in_len)
+		break;
 	    if (i-j == seq_len_a[ns]+1) {
 		primer_qual = 1;
-		in[k++] = in[old_i++];
+		in[k++] = '!'; old_i++;
 	    } else if (i-j == seq_len_a[ns]) {
 		primer_qual = 0;
 	    } else {
@@ -1660,6 +1662,8 @@ int fqz::fq_compress(char *in,  int in_len,
 	    /* Check qual and seq len matches. SOLiD format varies. */
 	    for (j = i; i < in_len && in[i] != '\n'; i++)
 		;
+	    if (i == in_len)
+		break;
 	    if (i-j == seq_len_a[ns]+1) {
 		primer_qual = 1;
 		old_i++;
