@@ -1517,7 +1517,7 @@ int fqz::fq_compress(char *in,  int in_len,
 	    break;
 
 	/* Sequence */
-	if (SOLiD) i++;
+	if (SOLiD) in[k++] = in[i++];
 	seq = seq_p;
 	//for (j = i; i < in_len && in[i] != '\n' && in[i] != '\r'; i++)
 	for (j = i; i < in_len && not_nl[(uc)in[i]]; i++)
@@ -1552,7 +1552,7 @@ int fqz::fq_compress(char *in,  int in_len,
 		;
 	    if (i-j == seq_len_a[ns]+1) {
 		primer_qual = 1;
-		old_i++;
+		in[k++] = in[old_i++];
 	    } else if (i-j == seq_len_a[ns]) {
 		primer_qual = 0;
 	    } else {
@@ -1569,7 +1569,7 @@ int fqz::fq_compress(char *in,  int in_len,
 	    for (j = 0, i = old_i; i < in_len && not_nl[(uc)in[i]]; i++, j++) {
 		if (seq[j] == '.') in[i] = '!'; // Ensure N is qual 0
 		if (in[i] == '!' && seq[j] != '.') in[i] = '"';
-		*qual_p++ = in[i];
+		in[k++] = *qual_p++ = in[i];
 	    }
 	} else {
 	    static int is_N[256]={
