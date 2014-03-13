@@ -138,6 +138,7 @@ typedef struct {
     int do_threads;		// Simple multi-threading enabled.
     int do_hash;		// Generate and test check sums.
     int SOLiD;			// A SOLiD data file
+    int illumina_fastq;		// Illumina's broken +64 format
 } fqz_params;
 
 /*
@@ -179,6 +180,7 @@ protected:
     int do_threads;
     int do_hash;
     int SOLiD;
+    int illumina_fastq;
 
     int L[256];          // Sequence table lookups ACGTN->0..4
     char solid_primer;
@@ -310,6 +312,7 @@ fqz::fqz(fqz_params *p) {
 	do_threads      = p->do_threads;
 	do_hash         = p->do_hash; // negligible slow down
 	SOLiD           = p->SOLiD;
+	illumina_fastq  = p->illumina_fastq;
     } else {
 	slevel = 3;
 	qlevel = 2;
@@ -321,6 +324,7 @@ fqz::fqz(fqz_params *p) {
 	do_threads = 1;
 	do_hash = 1;
 	SOLiD = 0;
+	illumina_fastq = 0;
     }
 
     /* ACGTN* */
@@ -562,12 +566,10 @@ void fqz::encode_name2(RangeCoder *rc, char *name, int len) {
     int ntok = 0;
     for (i = j = 0, k = 0; i < len; i++, j++, k++) {
 	/* Determine data type of this segment */
-	int n_type = N_ALPHA;
 	if (isalpha(name[i])) {
 	    int s = i+1;
 	    while (s < len && isalpha(name[s]))
 		s++;
-	    n_type = N_ALPHA;
 
 	    if (last_token_type[ntok] == N_ALPHA) {
 		if (s-i == last_token_int[ntok] &&
@@ -603,7 +605,6 @@ void fqz::encode_name2(RangeCoder *rc, char *name, int len) {
 	    while (s < len && name[s] == '0')
 		s++;
 	    v = s-i;
-	    n_type = N_ZERO;
 
 	    if (last_token_type[ntok] == N_ZERO) {
 		if (last_token_int[ntok] == v) {
@@ -632,7 +633,6 @@ void fqz::encode_name2(RangeCoder *rc, char *name, int len) {
 		v = v*10 + name[s] - '0';
 		s++;
 	    }
-	    n_type = N_DIGITS;
 
 	    if (last_token_type[ntok] == N_DIGITS) {
 		if ((d = v - last_token_int[ntok]) == 0) {
@@ -664,8 +664,6 @@ void fqz::encode_name2(RangeCoder *rc, char *name, int len) {
 
 	    i = s-1;
 	} else {
-	    n_type = N_CHAR;
-
 	    if (last_token_type[ntok] == N_CHAR) {
 		if (name[i] == last_token_int[ntok]) {
 		    //fprintf(stderr, "Tok %d (mat)\n", N_MATCH);
@@ -1152,13 +1150,14 @@ void fqz::encode_qual(RangeCoder *rc, char *seq, char *qual, int len) {
     int delta = 5;
     int i, len2 = len;
     int q1 = 0, q2 = 0;
+    int val0 = illumina_fastq ? 59 : 33;
 
     /* Removing "Killer Bees" */
     while (len2 > 0 && qual[len2-1] == '#')
 	len2--;
 
     for (i = 0; i < len2; i++) {
-	unsigned char q = (qual[i] - '!') & (QMAX-1);
+	unsigned char q = (qual[i] - val0) & (QMAX-1);
 
 #ifdef MULTI_QUAL_MODEL
 	if (model_qual[last].bias() > model_qual[last & SMALL_QMASK].bias()) {
@@ -1220,6 +1219,7 @@ void fqz::encode_qual_lossy(RangeCoder *rc, char *qual, int len, int approx) {
     int delta = 5;
     int i, len2 = len;
     int q1 = 0, q2 = 0;
+    int val0 = illumina_fastq ? 59 : 33;
 
     //static int counter = 0;
     //counter++;
@@ -1230,7 +1230,7 @@ void fqz::encode_qual_lossy(RangeCoder *rc, char *qual, int len, int approx) {
 #endif
 
     for (i = 0; i < len2; i++) {
-	unsigned char q = (qual[i] - '!') & (QMAX-1);
+	unsigned char q = (qual[i] - val0) & (QMAX-1);
 
 #if 0	
 	/* Simulation of illumina binning */
@@ -1290,6 +1290,7 @@ void fqz::decode_qual(RangeCoder *rc, char *qual, int len) {
     int i;
     int delta = 5;
     int q1 = 0, q2 = 0;
+    int val0 = illumina_fastq ? 59 : 33;
 
     for (i = 0; i < len; i++) {
 	unsigned char q = model_qual[last].decodeSymbol(rc);
@@ -1298,7 +1299,7 @@ void fqz::decode_qual(RangeCoder *rc, char *qual, int len) {
 	    while (i < len)
 		qual[i++] = '#';
 	} else {
-	    qual[i] = q + '!';
+	    qual[i] = q + val0;
 	
 	    if (QBITS == 12) {
 		last = ((MAX(q1, q2)<<6) + q) & ((1<<QBITS)-1);
@@ -1480,7 +1481,6 @@ int fqz::fq_compress(char *in,  int in_len,
     int i, j, k;
     //static char not_nl[256];
     static int not_nl[256];
-
     char *name_p = name_buf;
     char *seq_p  = seq_buf;
     char *qual_p = qual_buf;
@@ -1496,13 +1496,12 @@ int fqz::fq_compress(char *in,  int in_len,
 
     // Safe method;
     for (i = k = 0; i < in_len; ) {
-	char *name, *seq, *qual;
+	char *seq;
 
 	/* Name */
 	if (in[i] != '@')
 	    return -1;
 
-	name = &in[i+1];
 	j = i;
 	in[k++] = in[i];
 	i++;
@@ -1543,7 +1542,6 @@ int fqz::fq_compress(char *in,  int in_len,
 	    break;
 
 	/* Quality */
-	qual = &in[i];
 	if (SOLiD) {
 	    int old_i = i;
 	    /* Check qual and seq len matches. SOLiD format varies. */
@@ -1574,6 +1572,7 @@ int fqz::fq_compress(char *in,  int in_len,
 		in[k++] = *qual_p++ = in[i];
 	    }
 	} else {
+	    int minQ = INT_MAX, maxQ = INT_MIN;
 	    static int is_N[256]={
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /*  0 */
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* 10 */
@@ -1587,16 +1586,73 @@ int fqz::fq_compress(char *in,  int in_len,
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* 90 */
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* A0 */
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* B0 */
-		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* C10 */
+		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* C0 */
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* D0 */
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* E0 */
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* F0 */
 	    };
 	    //for (j = 0; i < in_len && in[i] != '\n' && in[i] != '\r'; i++, j++) {
-	    for (j = 0; i < in_len && not_nl[(uc)in[i]]; i++, j++) {
-		if (is_N[(unsigned char)seq[j]]) in[i] = '!'; // Ensure N is qual 0
-		if (in[i] == '!' && !is_N[(unsigned char)seq[j]]) in[i] = '"';
-		in[k++] = *qual_p++ = in[i];
+	    if (illumina_fastq) {
+		for (j = 0; i < in_len && not_nl[(uc)in[i]]; i++, j++) {
+		    // Ensure N is qual 0. Not techically correct for the
+		    // older-still log-odds fastq variant.
+		    if (is_N[(unsigned char)seq[j]])
+			in[i] = '@';
+		    else if (in[i] == '@')
+			in[i] = 'A';
+
+		    in[k++] = *qual_p++ = in[i];
+		    if (minQ > in[i])
+			minQ = in[i];
+		    if (maxQ < in[i])
+			maxQ = in[i];
+		}
+
+		if (minQ < 59) { // 1 in 4 is log-odds -4.77
+		    fprintf(stderr, "Minimum quality value is too low: "
+			    "ASCII value %d\n", minQ);
+		    return -1;
+		}
+	    } else {
+		for (j = 0; i < in_len && not_nl[(uc)in[i]]; i++, j++) {
+		    // Ensure N is qual 0
+		    if (is_N[(unsigned char)seq[j]])
+			in[i] = '!';
+		    else if (in[i] == '!')
+			in[i] = '"';
+
+		    in[k++] = *qual_p++ = in[i];
+		    if (minQ > in[i])
+			minQ = in[i];
+		    if (maxQ < in[i])
+			maxQ = in[i];
+		}
+
+		if (minQ < '!') {
+		    fprintf(stderr, "Minimum quality value is too low: "
+			    "ASCII value %d\n", minQ);
+		    return -1;
+		}
+
+		if (maxQ >= '!' + QMAX) {
+		    if (minQ >= 59) {
+			fprintf(stderr, "Quality scale is too high. "
+				"This looks like Illumina+64 format.\n"
+				"Try rerunning with the -I option instead.\n");
+			return -1;
+		    } else {
+			fprintf(stderr, "Maximum quality value is too high "
+				"(%d). Consider editing the QMAX #define and "
+				"recompiling.\n", maxQ - '!');
+		    }
+		}
+	    }
+
+	    if (maxQ - minQ + 1 >= QMAX) {
+		fprintf(stderr, "Quality range (ASCII %d to %d) is too high\n"
+			"Consider editing the QMAX #define and recompiling.\n",
+			minQ, maxQ);
+		return -1;
 	    }
 	}
 
@@ -1620,13 +1676,12 @@ int fqz::fq_compress(char *in,  int in_len,
 
     // Faster method with no \r or +<name> checking
     for (; i < in_len; ) {
-	char *name, *seq, *qual;
+	char *seq;
 
 	/* Name */
 	if (in[i] != '@')
 	    return -1;
 
-	name = &in[i+1];
 	j = i;
 	i++;
 	while (i < in_len && in[i] != '\n')
@@ -1656,7 +1711,6 @@ int fqz::fq_compress(char *in,  int in_len,
 	    break;
 
 	/* Quality */
-	qual = &in[i];
 	if (SOLiD) {
 	    int old_i = i;
 	    /* Check qual and seq len matches. SOLiD format varies. */
@@ -1685,6 +1739,7 @@ int fqz::fq_compress(char *in,  int in_len,
 		*qual_p++ = in[i];
 	    }
 	} else {
+	    int minQ = INT_MAX, maxQ = INT_MIN;
 	    static int is_N[256]={
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /*  0 */
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* 10 */
@@ -1703,10 +1758,67 @@ int fqz::fq_compress(char *in,  int in_len,
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* E0 */
 		1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /* F0 */
 	    };
-	    for (j = 0; i < in_len && in[i] != '\n'; i++, j++) {
-		if (is_N[(unsigned char)seq[j]]) in[i] = '!'; // Ensure N is qual 0
-		if (in[i] == '!' && !is_N[(unsigned char)seq[j]]) in[i] = '"';
-		*qual_p++ = in[i];
+	    if (illumina_fastq) {
+		for (j = 0; i < in_len && in[i] != '\n'; i++, j++) {
+		    // Ensure N is qual 0. Not techically correct for the
+		    // older-still log-odds fastq variant.
+		    if (is_N[(unsigned char)seq[j]])
+			in[i] = '@';
+		    else if (in[i] == '@')
+			in[i] = 'A';
+
+		    *qual_p++ = in[i];
+		    if (minQ > in[i])
+			minQ = in[i];
+		    if (maxQ < in[i])
+			maxQ = in[i];
+		}
+
+		if (minQ < 59) { // 1 in 4 is log-odds -4.77
+		    fprintf(stderr, "Minimum quality value is too low: "
+			    "ASCII value %d\n", minQ);
+		    return -1;
+		}
+	    } else {
+		for (j = 0; i < in_len && in[i] != '\n'; i++, j++) {
+		    // Ensure N is qual 0
+		    if (is_N[(unsigned char)seq[j]])
+			in[i] = '!';
+		    else if (in[i] == '!')
+			in[i] = '"';
+
+		    *qual_p++ = in[i];
+		    if (minQ > in[i])
+			minQ = in[i];
+		    if (maxQ < in[i])
+			maxQ = in[i];
+		}
+
+		if (minQ < '!') {
+		    fprintf(stderr, "Minimum quality value is too low: "
+			    "ASCII value %d\n", minQ);
+		    return -1;
+		}
+
+		if (maxQ >= '!' + QMAX) {
+		    if (minQ >= 59) {
+			fprintf(stderr, "Quality scale is too high. "
+				"This looks like Illumina+64 format.\n"
+				"Try rerunning with the -I option instead.\n");
+			return -1;
+		    } else {
+			fprintf(stderr, "Maximum quality value is too high "
+				"(%d). Consider editing the QMAX #define and "
+				"recompiling.\n", maxQ - '!');
+		    }
+		}
+	    }
+
+	    if (maxQ - minQ + 1 >= QMAX) {
+		fprintf(stderr, "Quality range (ASCII %d to %d) is too high\n"
+			"Consider editing the QMAX #define and recompiling.\n",
+			minQ, maxQ);
+		return -1;
 	    }
 	}
 
@@ -2111,9 +2223,17 @@ char *fqz::fq_decompress(char *in, int comp_len, int *out_len) {
 	    out_buf[out_ind++] = '\n';
 
 	    /* qual */
-	    for (int j = 0; j < seq_len_a[i]; j++) {
-		if ((out_buf[out_ind++] = *qual_p++) == '!') {
-		    out_buf[out_ind-4-seq_len_a[i]] = 'N';
+	    if (illumina_fastq) {
+		for (int j = 0; j < seq_len_a[i]; j++) {
+		    if ((out_buf[out_ind++] = *qual_p++) == '@') {
+			out_buf[out_ind-4-seq_len_a[i]] = 'N';
+		    }
+		}
+	    } else {
+		for (int j = 0; j < seq_len_a[i]; j++) {
+		    if ((out_buf[out_ind++] = *qual_p++) == '!') {
+			out_buf[out_ind-4-seq_len_a[i]] = 'N';
+		    }
 		}
 	    }
 	    out_buf[out_ind++] = '\n';
@@ -2225,6 +2345,7 @@ static void usage(int err) {
 
     fprintf(fp, "    -X             Disable generation/verification of check sums\n\n");
     fprintf(fp, "    -S             SOLiD format\n\n");
+    fprintf(fp, "    -I             Illumina +64 fastq format\n\n");
 
     fprintf(fp, "To decompress:\n   fqz_comp -d < foo.fqz > foo.fastq\n");
     fprintf(fp, "or fqz_comp -d foo.fqz foo.fastq\n");
@@ -2251,8 +2372,9 @@ int main(int argc, char **argv) {
     p.do_threads = 1;
     p.do_hash = 1;
     p.SOLiD = 0;
+    p.illumina_fastq = 0;
 
-    while ((opt = getopt(argc, argv, "hdQ:s:q:n:bePXS")) != -1) {
+    while ((opt = getopt(argc, argv, "hdQ:s:q:n:bePXSI")) != -1) {
 	switch (opt) {
 	case 'h':
 	    usage(0);
@@ -2310,6 +2432,10 @@ int main(int argc, char **argv) {
 	    p.SOLiD = 1;
 	    break;
 
+	case 'I':
+	    p.illumina_fastq = 1;
+	    break;
+
 	default:
 	    usage(1);
 	}
@@ -2360,6 +2486,7 @@ int main(int argc, char **argv) {
 	p.extreme_seq     = magic[7] & 2;
 	p.multi_seq_model = magic[7] & 4;
 	p.SOLiD           = magic[7] & 8;
+	p.illumina_fastq  = magic[7] & 16;
 	if (p.slevel > 9 || p.slevel < 1) {
 	    fprintf(stderr, "Unexpected quality compression level %d\n",
 		    p.slevel);
@@ -2384,7 +2511,8 @@ int main(int argc, char **argv) {
 	int flags = p.both_strands
 	    + p.extreme_seq*2
 	    + p.multi_seq_model*4
-	    + p.SOLiD*8;
+	    + p.SOLiD*8
+	    + p.illumina_fastq*16;
 	int r;
 	unsigned char magic[8] = {'.', 'f', 'q', 'z',
 				  MAJOR_VERS,
