@@ -184,7 +184,8 @@ protected:
 
     int L[256];          // Sequence table lookups ACGTN->0..4
     char solid_primer;
-    char primer_qual;    // True is primer base has a dummy quality
+    char primer_qual;    // 1 if primer base has a dummy quality of '!'
+                         // 2 if primer base has a dummy quality of A/C/G/T
 
     /* --- Buffers */
     // Input and output buffers; need to be size of BLK_SIZE
@@ -1484,6 +1485,7 @@ int fqz::fq_compress(char *in,  int in_len,
     char *name_p = name_buf;
     char *seq_p  = seq_buf;
     char *qual_p = qual_buf;
+    char primer = '?';
 
     ns = 0;
 
@@ -1496,7 +1498,7 @@ int fqz::fq_compress(char *in,  int in_len,
 
     // Safe method;
     for (i = k = 0; i < in_len; ) {
-	char *seq;
+	char *seq, *qual;
 
 	/* Name */
 	if (in[i] != '@')
@@ -1516,7 +1518,7 @@ int fqz::fq_compress(char *in,  int in_len,
 	    break;
 
 	/* Sequence */
-	if (SOLiD) in[k++] = in[i++];
+	if (SOLiD) primer = in[k++] = in[i++];
 	seq = seq_p;
 	//for (j = i; i < in_len && in[i] != '\n' && in[i] != '\r'; i++)
 	for (j = i; i < in_len && not_nl[(uc)in[i]]; i++)
@@ -1542,6 +1544,7 @@ int fqz::fq_compress(char *in,  int in_len,
 	    break;
 
 	/* Quality */
+	qual = &in[i];
 	if (SOLiD) {
 	    int old_i = i;
 	    /* Check qual and seq len matches. SOLiD format varies. */
@@ -1552,7 +1555,11 @@ int fqz::fq_compress(char *in,  int in_len,
 		break;
 	    if (i-j == seq_len_a[ns]+1) {
 		primer_qual = 1;
-		in[k++] = '!'; old_i++;
+		if (qual[0] == '!')
+		    in[k++] = '!';
+		else
+		    in[k++] = primer;
+		old_i++;
 	    } else if (i-j == seq_len_a[ns]) {
 		primer_qual = 0;
 	    } else {
@@ -1676,7 +1683,7 @@ int fqz::fq_compress(char *in,  int in_len,
 
     // Faster method with no \r or +<name> checking
     for (; i < in_len; ) {
-	char *seq;
+	char *seq, *qual;
 
 	/* Name */
 	if (in[i] != '@')
@@ -1711,6 +1718,7 @@ int fqz::fq_compress(char *in,  int in_len,
 	    break;
 
 	/* Quality */
+	qual = &in[i];
 	if (SOLiD) {
 	    int old_i = i;
 	    /* Check qual and seq len matches. SOLiD format varies. */
@@ -2015,6 +2023,8 @@ int fqz::encode(int in_fd, int out_fd) {
 		qlen = i++-qlen;
 
 		char c = qlen == slen;
+		if (c && in_buf[i-qlen-1] != '!')
+		    c=2;
 		if (1 != write(out_fd, &c, 1)) {
 		    fprintf(stderr, "Abort: write failed\n");
 		    return -1;
@@ -2200,11 +2210,19 @@ char *fqz::fq_decompress(char *in, int comp_len, int *out_len) {
 	    out_buf[out_ind++] = '\n';
 
 	    /* qual */
-	    if (primer_qual)
+	    switch (primer_qual) {
+	    case 1:
 		out_buf[out_ind++] = '!';
+		break;
+	    case 2:
+		out_buf[out_ind++] = solid_primer;
+		break;
+	    default:
+		;// no primer qual
+	    }
 	    for (int j = 0; j < seq_len_a[i]; j++) {
 		if ((out_buf[out_ind++] = *qual_p++) == '!') {
-		    out_buf[out_ind-4-seq_len_a[i] - primer_qual] = '.';
+		    out_buf[out_ind-4-seq_len_a[i] - (primer_qual>0)] = '.';
 		}
 	    }
 	    out_buf[out_ind++] = '\n';
