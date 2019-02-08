@@ -2344,11 +2344,11 @@ int fqz::decode(int in_fd, int out_fd) {
 static void usage(int err) {
     FILE *fp = err ? stderr : stdout;
 
-    fprintf(fp, "fqz_comp v%d.%d. Author James Bonfield, 2011-2013\n",
+    fprintf(fp, "fqzcomp v%d.%d. Author James Bonfield, 2011-2013\n",
 	    MAJOR_VERS, MINOR_VERS);
     fprintf(fp, "The range coder is derived from Eugene Shelwien.\n\n");
 
-    fprintf(fp, "To compress:\n  fqz_comp [options] [input_file [output_file]]\n\n");
+    fprintf(fp, "To compress:\n  fqzcomp [options] [input_file [output_file]]\n\n");
     fprintf(fp, "    -Q <num>       Perform lossy compression with all quality values\n");
     fprintf(fp, "                   being within 'num' distance from their original value.\n");
     fprintf(fp, "                   Default is lossless, i.e. \"-q 0\"\n\n");
@@ -2365,8 +2365,8 @@ static void usage(int err) {
     fprintf(fp, "    -S             SOLiD format\n\n");
     fprintf(fp, "    -I             Illumina +64 fastq format\n\n");
 
-    fprintf(fp, "To decompress:\n   fqz_comp -d < foo.fqz > foo.fastq\n");
-    fprintf(fp, "or fqz_comp -d foo.fqz foo.fastq\n");
+    fprintf(fp, "To decompress:\n   fqzcomp -d < foo.fqz > foo.fastq\n");
+    fprintf(fp, "or fqzcomp -d foo.fqz foo.fastq\n");
 
     exit(err);
 }

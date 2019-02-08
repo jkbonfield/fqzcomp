@@ -1,5 +1,5 @@
-fqz_comp v4.6
-=============
+fqzcomp v4.6
+============
 
 James Bonfield, Wellcome Trust Sanger Institute 2011 - 2013.
 
@@ -35,15 +35,15 @@ The program reads from stdin and writes to stdout, so it can be used
 as part of a pipeline. 
 
 To compress:
-    fastq_comp [options] < a.fasta > a.fqz
+    fqzcomp [options] < a.fasta > a.fqz
 
 To uncompress
-    fastq_comp -d < a.fqz > a.fasta
+    fqzcomp -d < a.fqz > a.fasta
 
 Additionally in v4.0 onwards it can read/write to files instead.
 
-    fastq_comp -s5 -q3 a.fasta a.fqz
-    fastq_comp -d a.fqz a.fasta
+    fqzcomp -s5 -q3 a.fasta a.fqz
+    fqzcomp -d a.fqz a.fasta
 
 
 Options

@@ -1,6 +1,6 @@
 VERS=4.6
 
-all: fqz_comp
+all: fqzcomp
 
 CC = g++
 #CC=~rmd/opt/llvm-3.2/bin/clang++
@@ -20,11 +20,11 @@ LIBS += -lpthread
 .c.o:
 	$(CC) $(CFLAGS) -c $< 
 
-fqz_comp: fqz_comp.o sfh.o
-	$(CC) $(CFLAGS) -o $@ fqz_comp.o sfh.o $(LIBS)
+fqzcomp: fqzcomp.o sfh.o
+	$(CC) $(CFLAGS) -o $@ fqzcomp.o sfh.o $(LIBS)
 
 clean:
-	-rm *.o fqz_comp
+	-rm *.o fqzcomp
 
 dist:
 	-rm -rf fqzcomp-$(VERS)
