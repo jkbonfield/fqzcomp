@@ -348,9 +348,9 @@ fqz::fqz(fqz_params *p) {
     NS = 7 + slevel;
     if (extreme_seq) {
 	model_seq8  = NULL;
-	model_seq16 = new BASE_MODEL<uint16_t>[1<<(2*NS)];
+	model_seq16 = new BASE_MODEL<uint16_t>[1L<<(2*NS)];
     } else {
-	model_seq8  = new BASE_MODEL<uint8_t>[1<<(2*NS)];
+	model_seq8  = new BASE_MODEL<uint8_t>[1L<<(2*NS)];
 	model_seq16 = NULL;
     }
 
@@ -395,7 +395,7 @@ fqz::~fqz() {
  */
 void fqz::load_hash_freqs(const char *fn) {
     unsigned char c4[4];
-    int ctx = 0;
+    uint32_t ctx = 0;
     FILE *fp = fopen(fn, "rb");
 
     fprintf(stderr, "Loading %s...", fn);
@@ -413,7 +413,7 @@ void fqz::load_hash_freqs(const char *fn) {
 	st[2] = c4[2] + 1;
 	st[3] = c4[3] + 1;
 
-	assert(ctx < (1<<(2*NS)));
+	assert(ctx < (1L<<(2*NS)));
 	if (extreme_seq) {
 	    model_seq16[ctx++].reset(st);
 	} else {
@@ -858,12 +858,12 @@ int fqz::decode_len(RangeCoder *rc) {
  * marginally less optimal in compression ratios (within 1%).
  */
 void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
-    int last, last2;
+    uint32_t last, last2;
     int bc[4] = {(3-0) << (2*NS-2),
 		 (3-1) << (2*NS-2),
 		 (3-2) << (2*NS-2),
 		 (3-3) << (2*NS-2)};
-    const int NS_MASK = ((1<<(2*NS))-1);
+    const uint32_t NS_MASK = ((1L<<(2*NS))-1);
 
     /* Corresponds to a 12-mer word that doesn't occur in human genome. */
     last  = 0x007616c7 & NS_MASK;
@@ -873,7 +873,7 @@ void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
 
     if (multi_seq_model) {
 	for (int i = 0; i < len; i++) {
-	    unsigned int l2 = (last << 2) & NS_MASK;
+	    uint32_t l2 = (last << 2) & NS_MASK;
 	    _mm_prefetch((const char *)&model_seq8[l2+0], _MM_HINT_T0);
 	    //_mm_prefetch((const char *)&model_seq8[l2+3], _MM_HINT_T0);
 		
@@ -908,7 +908,7 @@ void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
 	     * -5=>516624591, -5h=>514002730
 	     */
 	    if (both_strands) {
-		int b2 = last2 & 3;
+		uint32_t b2 = last2 & 3;
 		last2 = last2/4 + ((3-b) << (2*NS-2));
 		_mm_prefetch((const char *)&model_seq8[last2], _MM_HINT_T0);
 		model_seq8[last2].updateSymbol(b2);
@@ -916,7 +916,7 @@ void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
 	}
     } else {
 	if (both_strands) {
-	    unsigned l2 = last2;
+	    uint32_t l2 = last2;
 	    for (int i = 0; i < len && i < 128; i++) {
 		unsigned char  b = L[(unsigned char)seq[i]];
 		l2 = l2/4 + bc[b];
@@ -924,7 +924,7 @@ void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
 	    }
 
 	    for (int i = 0; i < len; i++) {
-		unsigned int l2 = (last << 2) & NS_MASK;
+		uint32_t l2 = (last << 2) & NS_MASK;
 		_mm_prefetch((const char *)&model_seq8[l2+0], _MM_HINT_T0);
 		
 		unsigned char  b = L[(unsigned char)seq[i]];
@@ -932,7 +932,7 @@ void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
 
 		last = (last*4 + b) & NS_MASK;
 
-		int b2 = last2 & 3;
+		uint32_t b2 = last2 & 3;
 		last2 = last2/4 + bc[b];
 		model_seq8[last2].updateSymbol(b2);
 	    }
@@ -953,7 +953,7 @@ void fqz::encode_seq8(RangeCoder *rc, char * seq, int len) {
 void fqz::encode_seq16(RangeCoder *rc, char *seq, int len) {
     int last, last2;
 
-    const int NS_MASK = ((1<<(2*NS))-1);
+    const int NS_MASK = ((1L<<(2*NS))-1);
 
     /* Corresponds to a 12-mer word that doesn't occur in human genome. */
     last  = 0x7616c7 & NS_MASK;
@@ -976,10 +976,10 @@ void fqz::encode_seq16(RangeCoder *rc, char *seq, int len) {
 }
 
 void fqz::decode_seq8(RangeCoder *rc, char *seq, int len) {
-    int last, last2;
+    uint32_t last, last2;
     const char *dec = SOLiD ? "0123." : "ACGTN";
 
-    const int NS_MASK = ((1<<(2*NS))-1);
+    const int NS_MASK = ((1L<<(2*NS))-1);
 
     /*
      * We can't do the same prefetch loop here as we don't know what the
@@ -997,7 +997,7 @@ void fqz::decode_seq8(RangeCoder *rc, char *seq, int len) {
     if (multi_seq_model) {
 	for (int i = 0; i < len; i++) {
 	    unsigned char b;
-	    unsigned int m = (last<<2) & NS_MASK;
+	    uint32_t m = (last<<2) & NS_MASK;
 	    _mm_prefetch((const char *)&model_seq8[m+0], _MM_HINT_T0);
 	    //_mm_prefetch((const char *)&model_seq8[m+3], _MM_HINT_T0);
 	    
@@ -1031,7 +1031,7 @@ void fqz::decode_seq8(RangeCoder *rc, char *seq, int len) {
 	if (both_strands) {
 	    for (int i = 0; i < len; i++) {	
 		unsigned char b;
-		unsigned int m = (last<<2) & NS_MASK;
+		uint32_t m = (last<<2) & NS_MASK;
 		int b2;
 
 		/* Get next set loaded */
@@ -1051,7 +1051,7 @@ void fqz::decode_seq8(RangeCoder *rc, char *seq, int len) {
 	} else {
 	    for (int i = 0; i < len; i++) {	
 		unsigned char b;
-		unsigned int m = (last<<2) & NS_MASK;
+		uint32_t m = (last<<2) & NS_MASK;
 
 		/* Get next set loaded */
 		_mm_prefetch((const char *)&model_seq8[m+0], _MM_HINT_T0);
@@ -1067,10 +1067,10 @@ void fqz::decode_seq8(RangeCoder *rc, char *seq, int len) {
 }
 
 void fqz::decode_seq16(RangeCoder *rc, char *seq, int len) {
-    int last, last2;
+    uint32_t last, last2;
     const char *dec = SOLiD ? "0123." : "ACGTN";
 
-    const int NS_MASK = ((1<<(2*NS))-1);
+    const int NS_MASK = ((1L<<(2*NS))-1);
 
     last  = 0x7616c7 & NS_MASK;
     last2 = (0x2c6b62ff >> (32 - 2*NS)) & NS_MASK;
@@ -1081,7 +1081,7 @@ void fqz::decode_seq16(RangeCoder *rc, char *seq, int len) {
 	_mm_prefetch((const char *)&model_seq16[last], _MM_HINT_T0);
 
 	if (both_strands) {
-	    int b2 = last2 & 3;
+	    uint32_t b2 = last2 & 3;
 	    last2 = last2/4 + ((3-b) << (2*NS-2));
 	    _mm_prefetch((const char *)&model_seq16[last2], _MM_HINT_T0);
 	    model_seq16[last2].updateSymbol(b2);
