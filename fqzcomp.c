@@ -1683,7 +1683,7 @@ int fqz::fq_compress(char *in,  int in_len,
 
     // Faster method with no \r or +<name> checking
     for (; i < in_len; ) {
-	char *seq, *qual;
+        char *seq;
 
 	/* Name */
 	if (in[i] != '@')
@@ -1718,7 +1718,6 @@ int fqz::fq_compress(char *in,  int in_len,
 	    break;
 
 	/* Quality */
-	qual = &in[i];
 	if (SOLiD) {
 	    int old_i = i;
 	    /* Check qual and seq len matches. SOLiD format varies. */
